@@ -742,10 +742,16 @@ body::before {
 }
 
 .platform-logo {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   filter: none;
+}
+
+/* Keep filter chips compact */
+.filter-chip .platform-logo {
+  width: 16px;
+  height: 16px;
 }
 
 /* Screen-reader only text */
@@ -768,15 +774,15 @@ body::before {
 }
 
 .ride-platform-uber {
-  background: linear-gradient(135deg, #000000 0%, #1a1a2e 100%);
+  background: transparent;
 }
 
 .ride-platform-ola {
-  background: linear-gradient(135deg, #1a8917 0%, #2ecc71 100%);
+  background: transparent;
 }
 
 .ride-platform-rapido {
-  background: linear-gradient(135deg, #f5a623 0%, #f39c12 100%);
+  background: transparent;
 }
 
 .ride-info {
@@ -1167,11 +1173,11 @@ body::before {
 
 /* ---- Food Platform Icons ---- */
 .food-platform-swiggy {
-  background: linear-gradient(135deg, #fc8019 0%, #e67e22 100%);
+  background: transparent;
 }
 
 .food-platform-zomato {
-  background: linear-gradient(135deg, #e23744 0%, #c0392b 100%);
+  background: transparent;
 }
 
 /* ---- Food Suggestion Card ---- */
