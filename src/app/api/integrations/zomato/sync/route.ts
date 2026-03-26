@@ -39,16 +39,17 @@ export async function POST() {
 
     return NextResponse.json({ success: true, imported, totalFetched: orders.length });
   } catch (e) {
+    const reason = (e as Error).message || 'unknown error';
     console.error('Zomato sync error:', e);
     await prisma.integration.update({
       where: { id: integration.id },
       data: {
         lastSyncAt: new Date(),
-        lastSyncStatus: `error: ${(e as Error).message}`,
+        lastSyncStatus: `error: ${reason}`,
         status: 'error',
       },
     });
-    return NextResponse.json({ error: 'Sync failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Sync failed', reason }, { status: 500 });
   }
 }
 

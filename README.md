@@ -17,7 +17,8 @@ A proactive assistant that learns from user behavior and suggests rides and food
 - One-tap confirm, full edit support (restaurant, platform, individual items)
 
 ### Real Platform Integration (Scrapers)
-- **Zomato (Live)**: HTTP scraper hits Zomato's internal `webroutes/getPage` API to fetch real restaurant listings -- actual names, ratings, delivery times, prices, and localities from Zomato's live database
+- **Zomato (Live listings)**: HTTP scraper hits Zomato's internal `webroutes/getPage` API to fetch real restaurant listings -- actual names, ratings, delivery times, prices, and localities from Zomato's live database
+- **Zomato (Real order history)**: Browser-assisted login using **Playwright** captures the authenticated Zomato web session once, stores the required cookies securely, and then reuses the existing HTTP order-history scraper for fast syncs
 - **Uber (Fallback)**: Scraper architecture in place targeting Uber's fare estimate endpoints; falls back to simulated data when CSRF tokens are unavailable (Uber's API requires session-based auth)
 - **Graceful Degradation**: If any scraper fails (network issues, rate limiting, API changes), the system automatically falls back to simulated data. The UI shows a data source badge (Live / Simulated) for transparency
 - **Ola, Rapido, Swiggy**: Always simulated (additional platforms are optional per the assignment)
@@ -53,6 +54,9 @@ This starts PostgreSQL, runs migrations, seeds the database, and starts the app 
 # Install dependencies
 npm install
 
+# Install Playwright browser binaries (needed for Zomato browser connect)
+npx playwright install chromium
+
 # Set up environment
 cp .env.example .env  # or create .env with DATABASE_URL
 
@@ -75,6 +79,7 @@ Open http://localhost:3000.
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://assistant:assistant123@localhost:5432/proactive_assistant?schema=public` |
 | `SCRAPER_ENABLED` | Enable real platform scrapers (`true`/`false`) | `true` |
+| `APP_URL` | Base app URL used by the Playwright Zomato connect helper | `http://localhost:3000` |
 | `ZOMATO_CITY` | City for Zomato restaurant search | `bangalore` |
 | `ZOMATO_ENTITY_ID` | Zomato city entity ID | `4` |
 
@@ -124,6 +129,19 @@ prisma/
 4. If triggered → **Suggestion builder** fetches live data from platforms, adjusts for traffic/delivery conditions, builds explanation
 5. User sees suggestion with "why" explanation, can confirm, edit, or dismiss
 6. Feedback loops back: confirmations reset dismissal counts, edits update preferred platforms, dismissals increment dampening counters
+
+### Zomato Browser Connect Flow
+1. User opens **Integrations** and clicks **Connect with Browser** for Zomato
+2. The app launches a local **Playwright** helper that opens a visible Chromium window
+3. The user completes the normal Zomato login / OTP flow in that browser
+4. After login succeeds, the helper captures the required authenticated cookies (`cid`, `PHPSESSID`, `zat`)
+5. Those cookies are encrypted and stored in the app's `Integration` record
+6. Future order-history syncs use the stored session via HTTP requests, so Playwright is only needed for initial connect or reconnect after session expiry
+
+### Zomato Integration Notes
+- Zomato does not provide public OAuth for consumer order-history access
+- For that reason, the app uses a browser-assisted session capture instead of asking the user to paste cookies manually
+- Manual cookie entry remains available as a fallback if browser launch is unavailable on the machine
 
 ### Anti-Annoyance Measures
 - **Confidence thresholds**: Only trigger on patterns seen multiple times

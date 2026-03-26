@@ -1,6 +1,6 @@
-import { prisma } from './prisma';
-import { fetchLiveData, LiveDataResult } from './live-data';
-import { format, addMinutes, setHours, setMinutes } from 'date-fns';
+import { prisma } from "./prisma";
+import { fetchLiveData, LiveDataResult } from "./live-data";
+import { format, addMinutes, setHours, setMinutes } from "date-fns";
 
 export interface RideSuggestion {
   id: string;
@@ -25,7 +25,15 @@ export interface RideSuggestion {
   confidence: number;
 }
 
-const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const dayNames = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 
 /**
  * Builds a complete suggestion from a detected pattern.
@@ -47,14 +55,14 @@ export async function buildSuggestion(
     confidence: number;
     preferredPlatform: string | null;
     preferredRideType: string | null;
-  }
+  },
 ): Promise<RideSuggestion> {
   // Fetch live pricing/ETA data
   const liveData = await fetchLiveData(
     pattern.originLat,
     pattern.originLng,
     pattern.destLat,
-    pattern.destLng
+    pattern.destLng,
   );
 
   // Calculate adjusted departure time based on traffic
@@ -63,7 +71,10 @@ export async function buildSuggestion(
 
   // If traffic is bad, suggest leaving earlier
   if (liveData.trafficDelayMinutes > 10) {
-    suggestedDeparture = addMinutes(suggestedDeparture, -liveData.trafficDelayMinutes);
+    suggestedDeparture = addMinutes(
+      suggestedDeparture,
+      -liveData.trafficDelayMinutes,
+    );
   }
 
   // If departure time is in the past, use "now + 5 min"
@@ -74,14 +85,11 @@ export async function buildSuggestion(
   // Build explanation
   const explanation = buildExplanation(pattern, liveData);
 
-  // Get destination short name
-  const destShort = getLocationShortName(pattern.destAddress);
-
   // Check for existing pending suggestion
   const existingSuggestion = await prisma.suggestion.findFirst({
     where: {
       userId,
-      status: 'pending',
+      status: "pending",
       destAddress: pattern.destAddress,
       createdAt: {
         gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
@@ -115,7 +123,7 @@ export async function buildSuggestion(
         lng: pattern.destLng,
       },
       suggestedDepartureTime: suggestedDeparture,
-      suggestedDepartureTimeDisplay: format(suggestedDeparture, 'h:mm a'),
+      suggestedDepartureTimeDisplay: format(suggestedDeparture, "h:mm a"),
       explanation,
       liveData,
       recommendedPlatform: pattern.preferredPlatform,
@@ -156,7 +164,7 @@ export async function buildSuggestion(
       lng: pattern.destLng,
     },
     suggestedDepartureTime: suggestedDeparture,
-    suggestedDepartureTimeDisplay: format(suggestedDeparture, 'h:mm a'),
+    suggestedDepartureTimeDisplay: format(suggestedDeparture, "h:mm a"),
     explanation,
     liveData,
     recommendedPlatform: pattern.preferredPlatform,
@@ -172,24 +180,30 @@ function buildExplanation(
     destAddress: string;
     confidence: number;
   },
-  liveData: LiveDataResult
+  liveData: LiveDataResult,
 ): string {
   const destShort = getLocationShortName(pattern.destAddress);
   const dayName = dayNames[pattern.dayOfWeek];
-  const timeStr = format(new Date(2000, 0, 1, pattern.hourOfDay, 0), 'h:mm a');
+  const timeStr = format(new Date(2000, 0, 1, pattern.hourOfDay, 0), "h:mm a");
 
   let explanation = `You usually head to ${destShort} around ${timeStr} on ${dayName}s`;
 
-  if (liveData.trafficCondition === 'heavy' || liveData.trafficCondition === 'severe') {
+  if (
+    liveData.trafficCondition === "heavy" ||
+    liveData.trafficCondition === "severe"
+  ) {
     explanation += `. Traffic is ${liveData.trafficDelayMinutes} min above average — consider leaving earlier`;
-  } else if (liveData.trafficCondition === 'moderate') {
+  } else if (liveData.trafficCondition === "moderate") {
     explanation += `. Traffic is slightly above normal`;
   } else {
     explanation += `. Traffic looks good right now`;
   }
 
-  const availableSurges = liveData.quotes.filter(q => q.available).map(q => q.surgeMultiplier);
-  const maxSurge = availableSurges.length > 0 ? Math.max(...availableSurges) : 1;
+  const availableSurges = liveData.quotes
+    .filter((q) => q.available)
+    .map((q) => q.surgeMultiplier);
+  const maxSurge =
+    availableSurges.length > 0 ? Math.max(...availableSurges) : 1;
   if (maxSurge > 1.3) {
     explanation += `. Surge pricing active (${maxSurge}×)`;
   }
@@ -199,11 +213,32 @@ function buildExplanation(
 
 function getLocationShortName(address: string): string {
   // Extract a short name from the address
-  if (address.toLowerCase().includes('wework') || address.toLowerCase().includes('office')) return 'office';
-  if (address.toLowerCase().includes('cult') || address.toLowerCase().includes('gym') || address.toLowerCase().includes('fitness')) return 'the gym';
-  if (address.toLowerCase().includes('phoenix') || address.toLowerCase().includes('mall')) return 'the mall';
-  if (address.toLowerCase().includes('toit') || address.toLowerCase().includes('brewpub')) return 'Toit';
-  if (address.toLowerCase().includes('jp nagar') || address.toLowerCase().includes('friend')) return "your friend's place";
+  if (
+    address.toLowerCase().includes("wework") ||
+    address.toLowerCase().includes("office")
+  )
+    return "office";
+  if (
+    address.toLowerCase().includes("cult") ||
+    address.toLowerCase().includes("gym") ||
+    address.toLowerCase().includes("fitness")
+  )
+    return "the gym";
+  if (
+    address.toLowerCase().includes("phoenix") ||
+    address.toLowerCase().includes("mall")
+  )
+    return "the mall";
+  if (
+    address.toLowerCase().includes("toit") ||
+    address.toLowerCase().includes("brewpub")
+  )
+    return "Toit";
+  if (
+    address.toLowerCase().includes("jp nagar") ||
+    address.toLowerCase().includes("friend")
+  )
+    return "your friend's place";
   // Default: use first part of address
-  return address.split(',')[0];
+  return address.split(",")[0];
 }

@@ -16,6 +16,7 @@ export type ZomatoAuthCookies = {
   cid: string;
   PHPSESSID: string;
   zat: string;
+  user_city_ids?: string; // location context required for some accounts/regions
 };
 
 export type ZomatoOrder = {
@@ -34,8 +35,10 @@ const ORDERS_ENDPOINT = 'https://www.zomato.com/webroutes/user/orders';
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export function cookiesToHeader(cookies: ZomatoAuthCookies): string {
-  // Keep it minimal: only cookies we need
-  return `cid=${cookies.cid}; PHPSESSID=${cookies.PHPSESSID}; zat=${cookies.zat}`;
+  // Keep it minimal: only cookies we need (include location if present)
+  const parts: string[] = [`cid=${cookies.cid}`, `PHPSESSID=${cookies.PHPSESSID}`, `zat=${cookies.zat}`];
+  if (cookies.user_city_ids) parts.push(`user_city_ids=${cookies.user_city_ids}`);
+  return parts.join('; ');
 }
 
 export function maskSecret(s: string): string {
