@@ -36,7 +36,7 @@ export async function evaluateFoodTriggers(userId: string): Promise<FoodTriggerR
   const currentHour = getHours(now);
   const currentMinutes = now.getMinutes();
 
-  const patterns = await prisma.foodPattern.findMany({
+  const todayPatterns = await prisma.foodPattern.findMany({
     where: {
       userId,
       dayOfWeek: currentDay,
@@ -45,9 +45,55 @@ export async function evaluateFoodTriggers(userId: string): Promise<FoodTriggerR
     orderBy: { confidence: 'desc' },
   });
 
-  if (patterns.length === 0) {
-    return { shouldTrigger: false, pattern: null, reason: 'No food patterns for today' };
+  // If there are no confident patterns for today, fall back to the best upcoming
+  // pattern from any weekday so the assistant still provides value.
+  if (todayPatterns.length === 0) {
+    const fallbackPatterns = await prisma.foodPattern.findMany({
+      where: {
+        userId,
+        confidence: { gte: 0.2 },
+      },
+      orderBy: { confidence: 'desc' },
+    });
+
+    type FallbackPattern = (typeof fallbackPatterns)[number];
+    const currentMinuteOfDay = currentHour * 60 + currentMinutes;
+    type ScoredPattern = { p: FallbackPattern; deltaMinutes: number };
+    const scored: ScoredPattern[] = fallbackPatterns.map((p: FallbackPattern) => {
+      const patternMinuteOfDay = p.hourOfDay * 60;
+      const dayDelta = (p.dayOfWeek - currentDay + 7) % 7;
+      let deltaMinutes = dayDelta * 1440 + (patternMinuteOfDay - currentMinuteOfDay);
+      if (deltaMinutes <= 0) deltaMinutes += 7 * 1440; // next week occurrence
+      return { p, deltaMinutes };
+    });
+
+    scored.sort((a: ScoredPattern, b: ScoredPattern) => a.deltaMinutes - b.deltaMinutes);
+    const upcomingPattern = scored[0]?.p;
+
+    if (upcomingPattern) {
+      const typicalItems =
+        (upcomingPattern.typicalItems as Array<{ name: string; frequency: number }>) || [];
+      return {
+        shouldTrigger: true,
+        pattern: {
+          id: upcomingPattern.id,
+          dayOfWeek: upcomingPattern.dayOfWeek,
+          hourOfDay: upcomingPattern.hourOfDay,
+          cuisine: upcomingPattern.cuisine,
+          restaurantName: upcomingPattern.restaurantName,
+          typicalItems,
+          confidence: upcomingPattern.confidence,
+          averageCost: upcomingPattern.averageCost,
+          preferredPlatform: upcomingPattern.preferredPlatform,
+        },
+        reason: `Preview: upcoming order from ${upcomingPattern.restaurantName} at ${upcomingPattern.hourOfDay}:00`,
+      };
+    }
+
+    return { shouldTrigger: false, pattern: null, reason: 'No food patterns found' };
   }
+
+  const patterns = todayPatterns;
 
   for (const pattern of patterns) {
     const patternMinuteOfDay = pattern.hourOfDay * 60;
@@ -85,11 +131,12 @@ export async function evaluateFoodTriggers(userId: string): Promise<FoodTriggerR
 
     if (existingConfirmation) continue;
 
-    // Skip if user already placed an order today (from actual history)
+    // Skip only if user already placed an order earlier today.
+    // Seed data may include later timestamps on the same date; those should not block suggestions now.
     const alreadyOrderedToday = await prisma.foodOrderHistory.findFirst({
       where: {
         userId,
-        orderTime: { gte: todayStart },
+        orderTime: { gte: todayStart, lte: now },
       },
     });
 
@@ -149,7 +196,7 @@ export async function evaluateFoodTriggers(userId: string): Promise<FoodTriggerR
   }
 
   // No time-matched patterns triggered; show the best upcoming pattern as a preview
-  const upcomingPattern = patterns.find((p) => {
+  const upcomingPattern = patterns.find((p: typeof patterns[number]) => {
     const patternMinuteOfDay = p.hourOfDay * 60;
     const currentMinuteOfDay = currentHour * 60 + currentMinutes;
     return patternMinuteOfDay > currentMinuteOfDay;
