@@ -1,36 +1,126 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ProAssist — Proactive AI Assistant
 
-## Getting Started
+A proactive assistant that learns from user behavior and suggests rides and food orders before you need them. Compares prices and ETAs across Uber, Ola, Rapido, Swiggy, and Zomato.
 
-First, run the development server:
+## Features
+
+### Ride Assistant
+- **Learns** from ride history: frequent destinations by day/time, preferred platforms and ride types
+- **Detects** when a ride is likely needed based on time patterns, cooldowns, and confidence thresholds
+- **Suggests** complete rides with origin/destination, traffic-adjusted departure time, and cross-platform price comparison (Uber, Ola, Rapido)
+- One-tap confirm, full edit support (origin, destination, time, platform, ride type)
+
+### Food Assistant
+- **Learns** from order history: favorite cuisines, restaurants, items, and ordering patterns by day/time
+- **Detects** when an order is likely (e.g., Friday biryani night, Monday healthy meals)
+- **Suggests** complete orders with restaurant, items, delivery ETA, and alternatives
+- One-tap confirm, full edit support (restaurant, platform, individual items)
+
+### Architecture
+- **Trigger Engine**: Watches time-of-day patterns, confidence thresholds (0.5 for rides, 0.35 for food), 2-hour dismissal cooldowns, consecutive dismissal dampening, checks for already-completed trips/orders
+- **Learning Engine**: Frequency analysis with 2× recency weighting for last 30 days, feedback loop from edits/dismissals adjusting pattern confidence and preferences
+- **Live Data**: Simulated platform APIs with 5% failure rate, graceful degradation when platforms are unreachable, fallback to available platforms
+- **Memory**: PostgreSQL with Prisma ORM — stores ride/food history, learned patterns, suggestions, and all user feedback
+
+## Tech Stack
+
+- **Framework**: Next.js 16 (App Router, Turbopack)
+- **UI**: React 19, Lucide icons, custom CSS design system (dark theme)
+- **Database**: PostgreSQL 16 + Prisma 7
+- **Language**: TypeScript 5
+
+## Quick Start
+
+### Option 1: Docker (recommended)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker compose up
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+This starts PostgreSQL, runs migrations, seeds the database, and starts the app at http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Option 2: Local Development
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**Prerequisites**: Node.js 20+, PostgreSQL running locally
 
-## Learn More
+```bash
+# Install dependencies
+npm install
 
-To learn more about Next.js, take a look at the following resources:
+# Set up environment
+cp .env.example .env  # or create .env with DATABASE_URL
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Run migrations and generate Prisma client
+npx prisma migrate dev
+npx prisma generate
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# Seed the database with demo data
+npx tsx prisma/seed.ts
 
-## Deploy on Vercel
+# Start development server
+npm run dev
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Open http://localhost:3000.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://assistant:assistant123@localhost:5432/proactive_assistant?schema=public` |
+
+## Project Structure
+
+```
+src/
+├── app/
+│   ├── page.tsx                          # Unified UI (Ride + Food assistants)
+│   ├── layout.tsx                        # Root layout
+│   ├── globals.css                       # Design system + all styles
+│   └── api/
+│       ├── suggestions/                  # Ride suggestion CRUD
+│       ├── ride-history/                 # Ride history listing
+│       ├── patterns/                     # Learned ride patterns
+│       ├── settings/                     # User settings
+│       └── food/
+│           ├── suggestions/              # Food suggestion CRUD
+│           ├── order-history/            # Food order history
+│           └── patterns/                 # Learned food patterns
+├── lib/
+│   ├── prisma.ts                         # Database singleton
+│   ├── learning-engine.ts                # Ride pattern analysis
+│   ├── trigger-engine.ts                 # Ride trigger logic
+│   ├── suggestion-builder.ts             # Ride suggestion builder
+│   ├── live-data.ts                      # Simulated ride platform APIs
+│   ├── food-learning-engine.ts           # Food pattern analysis
+│   ├── food-trigger-engine.ts            # Food trigger logic
+│   ├── food-suggestion-builder.ts        # Food suggestion builder
+│   └── food-live-data.ts                 # Simulated food platform APIs
+prisma/
+├── schema.prisma                         # Database schema (10 models)
+├── seed.ts                               # Demo data generator
+└── migrations/                           # SQL migrations
+```
+
+## How It Works
+
+### Trigger Flow
+1. User opens dashboard → API called
+2. **Learning engine** analyzes all history, extracts patterns with frequency + recency weighting
+3. **Trigger engine** checks: Is current time within ±30 min of a pattern? Is confidence high enough? Any cooldowns active? Already completed this trip/order today?
+4. If triggered → **Suggestion builder** fetches live data from platforms, adjusts for traffic/delivery conditions, builds explanation
+5. User sees suggestion with "why" explanation, can confirm, edit, or dismiss
+6. Feedback loops back: confirmations reset dismissal counts, edits update preferred platforms, dismissals increment dampening counters
+
+### Anti-Annoyance Measures
+- **Confidence thresholds**: Only trigger on patterns seen multiple times
+- **2-hour cooldowns**: No re-trigger after a dismissal
+- **Consecutive dismissal dampening**: After 3+ dismissals, effective confidence drops
+- **Already-completed checks**: Skip if user already rode/ordered for this pattern today
+- **Recency decay**: Old patterns lose weight over time
+
+## Seed Data
+
+The seed script generates ~90 days of realistic data for user "Rahul Sharma" in Bangalore:
+- **Rides**: ~113 records — weekday commutes (home↔office), Saturday gym trips, occasional mall/restaurant visits
+- **Food**: ~68 records — weeknight dinners (biryani Fridays, healthy Mondays, Chinese Wednesdays), weekend lunches

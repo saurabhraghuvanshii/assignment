@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  homeAddress   String
+  homeLat       Float
+  homeLng       Float
+  workAddress   String
+  workLat       Float
+  workLng       Float
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  rideHistory             RideHistory[]
+  locationPatterns        LocationPattern[]
+  suggestions             Suggestion[]
+  suggestionFeedback      SuggestionFeedback[]
+  foodOrderHistory        FoodOrderHistory[]
+  foodPatterns            FoodPattern[]
+  foodSuggestions         FoodSuggestion[]
+  foodSuggestionFeedback  FoodSuggestionFeedback[]
+}
+
+model RideHistory {
+  id            String    @id @default(cuid())
+  userId        String
+  platform      String    // uber, ola, rapido
+  rideType      String    // auto, bike, cab, premium
+  originAddress String
+  originLat     Float
+  originLng     Float
+  destAddress   String
+  destLat       Float
+  destLng       Float
+  departureTime DateTime
+  arrivalTime   DateTime
+  cost          Float
+  distance      Float     // in km
+  dayOfWeek     Int       // 0=Sunday, 6=Saturday
+  createdAt     DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, dayOfWeek])
+  @@index([userId, departureTime])
+}
+
+model LocationPattern {
+  id              String    @id @default(cuid())
+  userId          String
+  dayOfWeek       Int       // 0-6
+  hourOfDay       Int       // 0-23
+  originAddress   String
+  originLat       Float
+  originLng       Float
+  destAddress     String
+  destLat         Float
+  destLng         Float
+  confidence      Float     @default(0.5)  // 0-1
+  frequency       Int       @default(1)
+  preferredPlatform String?
+  preferredRideType String?
+  lastTriggered   DateTime?
+  consecutiveDismissals Int @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, dayOfWeek, hourOfDay, destAddress])
+  @@index([userId, dayOfWeek, hourOfDay])
+}
+
+model Suggestion {
+  id                String    @id @default(cuid())
+  userId            String
+  patternId         String?
+  status            String    @default("pending") // pending, confirmed, dismissed, edited
+  originAddress     String
+  originLat         Float
+  originLng         Float
+  destAddress       String
+  destLat           Float
+  destLng           Float
+  suggestedDepartureTime DateTime
+  explanation       String    // human-readable reason
+  platformData      Json?     // { uber: { price, eta, surge }, ola: {...}, rapido: {...} }
+  confirmedPlatform String?
+  confirmedRideType String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user     User                 @relation(fields: [userId], references: [id])
+  feedback SuggestionFeedback[]
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+}
+
+model SuggestionFeedback {
+  id            String    @id @default(cuid())
+  userId        String
+  suggestionId  String
+  action        String    // confirmed, dismissed, edited
+  editedFields  Json?     // { field: "destination", oldValue: "...", newValue: "..." }
+  dismissReason String?
+  createdAt     DateTime  @default(now())
+
+  user       User       @relation(fields: [userId], references: [id])
+  suggestion Suggestion @relation(fields: [suggestionId], references: [id])
+
+  @@index([userId, action])
+}
+
+// ---- Food Assistant Models ----
+
+model FoodOrderHistory {
+  id                      String    @id @default(cuid())
+  userId                  String
+  platform                String    // swiggy, zomato
+  restaurantName          String
+  items                   Json      // [{name, quantity, price}]
+  cuisine                 String    // biryani, north-indian, chinese, etc.
+  totalCost               Float
+  deliveryFee             Float     @default(0)
+  orderTime               DateTime
+  deliveryDurationMinutes Int?
+  dayOfWeek               Int       // 0=Sunday, 6=Saturday
+  rating                  Float?
+  createdAt               DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, dayOfWeek])
+  @@index([userId, orderTime])
+}
+
+model FoodPattern {
+  id                    String    @id @default(cuid())
+  userId                String
+  dayOfWeek             Int
+  hourOfDay             Int
+  cuisine               String
+  restaurantName        String
+  typicalItems          Json      // [{name, frequency}]
+  confidence            Float     @default(0.5)
+  frequency             Int       @default(1)
+  averageCost           Float     @default(0)
+  preferredPlatform     String?
+  lastTriggered         DateTime?
+  consecutiveDismissals Int       @default(0)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, dayOfWeek, hourOfDay, restaurantName])
+  @@index([userId, dayOfWeek, hourOfDay])
+}
+
+model FoodSuggestion {
+  id                   String    @id @default(cuid())
+  userId               String
+  patternId            String?
+  status               String    @default("pending")
+  platform             String
+  restaurantName       String
+  items                Json      // suggested items [{name, price, quantity}]
+  cuisine              String
+  estimatedCost        Float
+  estimatedDeliveryMin Int
+  explanation          String
+  platformData         Json?
+  alternatives         Json?     // alternative restaurant suggestions
+  confirmedPlatform    String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user     User                      @relation(fields: [userId], references: [id])
+  feedback FoodSuggestionFeedback[]
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+}
+
+model FoodSuggestionFeedback {
+  id            String    @id @default(cuid())
+  userId        String
+  suggestionId  String
+  action        String    // confirmed, dismissed, edited
+  editedFields  Json?
+  dismissReason String?
+  createdAt     DateTime  @default(now())
+
+  user       User            @relation(fields: [userId], references: [id])
+  suggestion FoodSuggestion  @relation(fields: [suggestionId], references: [id])
+
+  @@index([userId, action])
+}
