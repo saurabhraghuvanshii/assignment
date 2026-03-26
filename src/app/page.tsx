@@ -299,7 +299,23 @@ function IntegrationsPanel({
     load();
   }, [load]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauthState = params.get('oauth');
+    if (!oauthState) return;
+    if (oauthState === 'uber-connected') {
+      showToast('Uber connected via OAuth', 'success');
+      load();
+    } else if (oauthState.startsWith('uber-')) {
+      showToast(`Uber OAuth: ${oauthState}`, 'error');
+    }
+    params.delete('oauth');
+    const next = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', next);
+  }, [load, showToast]);
+
   const zomato = integrations.find((i) => i.provider === 'zomato');
+  const uber = integrations.find((i) => i.provider === 'uber');
 
   const connectZomato = async () => {
     setConnecting(true);
@@ -330,6 +346,20 @@ function IntegrationsPanel({
       await load();
     } catch {
       showToast('Zomato sync failed', 'error');
+    }
+    setConnecting(false);
+  };
+
+  const syncUber = async () => {
+    setConnecting(true);
+    try {
+      const res = await fetch('/api/integrations/uber/sync', { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.reason || data.error || 'Sync failed');
+      showToast(`Imported ${data.imported} Uber trips`, 'success');
+      await load();
+    } catch (e) {
+      showToast(`Uber sync failed: ${(e as Error).message}`, 'error');
     }
     setConnecting(false);
   };
@@ -396,12 +426,29 @@ function IntegrationsPanel({
               </div>
             </div>
             <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 13, lineHeight: 1.5 }}>
-              Uber ride history import requires an authenticated session; we’ll add it next (same pattern as Zomato).
+              Uber integration is prepared, but temporarily disabled until provider scope approval.
             </div>
-            <div style={{ marginTop: 12 }}>
-              <span className="data-source-badge data-source-simulated">
-                <Radio size={10} /> coming soon
+            <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <span className={`data-source-badge ${uber?.status === 'connected' ? 'data-source-live' : 'data-source-simulated'}`}>
+                {uber?.status === 'connected' ? <Wifi size={10} /> : <Radio size={10} />} {uber?.status || 'not connected'}
               </span>
+              {uber?.sessionLast4 && (
+                <span className="data-source-badge data-source-simulated">
+                  cookie {uber.sessionLast4}
+                </span>
+              )}
+            </div>
+            <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+              {uber?.lastSyncStatus || 'Pending provider approval'}
+            </div>
+            <div className="action-buttons" style={{ marginTop: 12 }}>
+              <button className="btn-confirm" disabled title="Temporarily disabled">
+                <ArrowRight size={16} /> Connect with Uber OAuth
+              </button>
+              <button className="btn-confirm" disabled title="Temporarily disabled">
+                <RefreshCw size={16} className={connecting ? 'loading-spinner' : ''} style={{ border: 'none', width: 16, height: 16 }} />
+                Sync trips
+              </button>
             </div>
           </div>
         </div>
@@ -474,6 +521,26 @@ export default function Home() {
   useEffect(() => {
     refreshMe();
   }, [refreshMe]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const mode = params.get('mode');
+    if (tab === 'dashboard' || tab === 'history' || tab === 'patterns' || tab === 'integrations') {
+      setActiveTab(tab);
+    }
+    if (mode === 'rides' || mode === 'food') {
+      setAssistantMode(mode);
+    }
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', activeTab);
+    params.set('mode', assistantMode);
+    const next = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+    window.history.replaceState({}, '', next);
+  }, [activeTab, assistantMode]);
 
   const now = new Date();
   const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 17 ? 'Good afternoon' : 'Good evening';
