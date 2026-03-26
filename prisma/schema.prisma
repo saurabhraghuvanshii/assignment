@@ -9,6 +9,8 @@ datasource db {
 model User {
   id            String    @id @default(cuid())
   name          String
+  email         String?   @unique
+  googleSub     String?   @unique
   homeAddress   String
   homeLat       Float
   homeLng       Float
@@ -26,6 +28,27 @@ model User {
   foodPatterns            FoodPattern[]
   foodSuggestions         FoodSuggestion[]
   foodSuggestionFeedback  FoodSuggestionFeedback[]
+  integrations            Integration[]
+}
+
+model Integration {
+  id                String    @id @default(cuid())
+  userId            String
+  provider          String    // zomato, uber
+  status            String    @default("connected") // connected, disconnected, error
+  scopes            String[]  @default([]) // requested permissions shown to user
+  sessionEncrypted  String?   // encrypted cookie/session payload
+  sessionLast4      String?   // for UI debugging (never store full secret in plaintext)
+  metadata          Json?
+  lastSyncAt        DateTime?
+  lastSyncStatus    String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, provider])
+  @@index([userId, provider])
 }
 
 model RideHistory {

@@ -3,11 +3,19 @@ import { prisma } from '@/lib/prisma';
 import { updateStoredPatterns } from '@/lib/learning-engine';
 import { evaluateTriggers } from '@/lib/trigger-engine';
 import { buildSuggestion } from '@/lib/suggestion-builder';
+import { auth } from '@/lib/auth';
 
 export async function GET() {
   try {
-    // Get the demo user
-    const user = await prisma.user.findFirst();
+    const session = await auth();
+    const userId = (session?.user as { id?: string } | undefined)?.id;
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, homeAddress: true, workAddress: true },
+    });
     if (!user) {
       return NextResponse.json({ error: 'No user found' }, { status: 404 });
     }

@@ -1,8 +1,13 @@
 /**
  * Live food data integration layer.
- * Simulates fetching live data from Swiggy and Zomato.
- * Real scrapers/APIs can replace the simulation functions.
+ * Tries REAL Zomato scraper first, then falls back to simulated data.
+ * Swiggy data is always simulated (Zomato is the required platform integration).
  */
+
+import {
+  searchRestaurants as zomatoSearch,
+  type ZomatoRestaurant,
+} from './scrapers/zomato-scraper';
 
 export interface MenuItem {
   name: string;
@@ -36,6 +41,10 @@ export interface FoodLiveDataResult {
   extraDelayMinutes: number;
   fetchedAt: Date;
   errors: string[];
+  dataSource: {
+    zomato: 'live' | 'simulated' | 'error';
+    swiggy: 'simulated';
+  };
 }
 
 const platformNames: Record<string, string> = {
@@ -259,8 +268,12 @@ function getSurge(hour: number): { active: boolean; multiplier: number } {
   return { active: false, multiplier: 1.0 };
 }
 
+const SCRAPER_ENABLED = process.env.SCRAPER_ENABLED !== 'false';
+
 /**
  * Fetch live restaurant data from all platforms.
+ * Zomato: tries real scraper first, falls back to simulated.
+ * Swiggy: always simulated (only Zomato is required by the assignment).
  * Handles failures gracefully — if a platform fails, others still return.
  */
 export async function fetchFoodLiveData(
@@ -275,21 +288,50 @@ export async function fetchFoodLiveData(
 
   const restaurants: RestaurantQuote[] = [];
   const errors: string[] = [];
+  let zomatoSource: 'live' | 'simulated' | 'error' = 'simulated';
 
-  for (const platform of ['swiggy', 'zomato']) {
+  // --- Swiggy: always simulated ---
+  try {
+    const swiggyQuotes = await fetchSimulatedPlatformRestaurants(
+      'swiggy', hour, delivery.extraDelayMinutes, surge, cuisine, restaurantName
+    );
+    restaurants.push(...swiggyQuotes);
+  } catch {
+    errors.push('Swiggy: Service temporarily unavailable');
+  }
+
+  // --- Zomato: try REAL scraper, fall back to simulated ---
+  if (SCRAPER_ENABLED) {
     try {
-      const platformRestaurants = await fetchPlatformRestaurants(
-        platform,
-        hour,
-        delivery.extraDelayMinutes,
-        surge,
-        cuisine,
-        restaurantName
+      const zomatoQuotes = await fetchRealZomatoData(cuisine, restaurantName, hour, delivery, surge);
+      if (zomatoQuotes.length > 0) {
+        restaurants.push(...zomatoQuotes);
+        zomatoSource = 'live';
+        console.log(`[Food Live Data] Zomato: ${zomatoQuotes.length} restaurants from REAL scraper`);
+      } else {
+        throw new Error('Real scraper returned no restaurants');
+      }
+    } catch (e) {
+      console.warn(`[Food Live Data] Zomato scraper failed, falling back to simulated:`, (e as Error).message);
+      zomatoSource = 'simulated';
+      try {
+        const simQuotes = await fetchSimulatedPlatformRestaurants(
+          'zomato', hour, delivery.extraDelayMinutes, surge, cuisine, restaurantName
+        );
+        restaurants.push(...simQuotes);
+      } catch {
+        zomatoSource = 'error';
+        errors.push('Zomato: Service temporarily unavailable');
+      }
+    }
+  } else {
+    try {
+      const simQuotes = await fetchSimulatedPlatformRestaurants(
+        'zomato', hour, delivery.extraDelayMinutes, surge, cuisine, restaurantName
       );
-      restaurants.push(...platformRestaurants);
+      restaurants.push(...simQuotes);
     } catch {
-      const errorMsg = `${platformNames[platform]}: Service temporarily unavailable`;
-      errors.push(errorMsg);
+      errors.push('Zomato: Service temporarily unavailable');
     }
   }
 
@@ -299,10 +341,142 @@ export async function fetchFoodLiveData(
     extraDelayMinutes: delivery.extraDelayMinutes,
     fetchedAt: now,
     errors,
+    dataSource: {
+      zomato: zomatoSource,
+      swiggy: 'simulated',
+    },
   };
 }
 
-async function fetchPlatformRestaurants(
+/**
+ * Fetch REAL restaurant data from Zomato via HTTP scraping.
+ * Uses Zomato's webroutes/getPage API to get real restaurant listings
+ * with actual names, ratings, delivery times, and prices.
+ */
+async function fetchRealZomatoData(
+  cuisine: string | undefined,
+  restaurantName: string | undefined,
+  hour: number,
+  delivery: { condition: string; extraDelayMinutes: number },
+  surge: { active: boolean; multiplier: number }
+): Promise<RestaurantQuote[]> {
+  const query = restaurantName || cuisine || 'restaurant';
+  const city = process.env.ZOMATO_CITY || 'bangalore';
+  const entityId = parseInt(process.env.ZOMATO_ENTITY_ID || '4', 10);
+
+  const searchResults = await zomatoSearch(query, city, entityId, 6);
+  if (searchResults.length === 0) {
+    throw new Error('No restaurants found on Zomato');
+  }
+
+  return searchResults.slice(0, 5).map((restaurant) =>
+    convertZomatoToQuote(restaurant, hour, delivery, surge)
+  );
+}
+
+/**
+ * Converts a real Zomato restaurant result into our RestaurantQuote format.
+ * Menu items are generated from the cost-for-one data since Zomato's menu
+ * API requires authentication. The restaurant info (name, rating, delivery
+ * time, etc.) is all real scraped data.
+ */
+function convertZomatoToQuote(
+  restaurant: ZomatoRestaurant,
+  _hour: number,
+  delivery: { condition: string; extraDelayMinutes: number },
+  surge: { active: boolean; multiplier: number }
+): RestaurantQuote {
+  const baseDeliveryFee = Math.round(restaurant.costForOne * 0.08) || 25;
+  const deliveryFee = surge.active
+    ? Math.round(baseDeliveryFee * surge.multiplier)
+    : baseDeliveryFee;
+
+  // Generate representative menu items from cost data
+  // (Zomato's menu API requires auth so we estimate from cost-for-one)
+  const costPerItem = restaurant.costForOne || 250;
+  const menu: MenuItem[] = generateMenuFromCost(
+    restaurant.cuisines,
+    costPerItem,
+    surge
+  );
+
+  return {
+    platform: 'zomato',
+    platformDisplayName: 'Zomato',
+    restaurantName: restaurant.name,
+    cuisine: restaurant.cuisines[0]?.toLowerCase() || 'restaurant',
+    rating: restaurant.deliveryRating || restaurant.aggregateRating,
+    deliveryTimeMin: Math.max(15, restaurant.deliveryTimeMin + delivery.extraDelayMinutes),
+    deliveryFee,
+    deliveryFeeDisplay: deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`,
+    minimumOrder: Math.round(restaurant.costForOne * 0.4) || 99,
+    surgeActive: surge.active,
+    surgeMultiplier: surge.multiplier,
+    available: restaurant.isServiceable && restaurant.isOpen,
+    menu,
+  };
+}
+
+function generateMenuFromCost(
+  cuisines: string[],
+  avgCost: number,
+  surge: { active: boolean; multiplier: number }
+): MenuItem[] {
+  const cuisineLower = cuisines.map(c => c.toLowerCase()).join(' ');
+  let items: { name: string; priceFactor: number; isVeg: boolean; isBestseller: boolean }[];
+
+  if (cuisineLower.includes('biryani') || cuisineLower.includes('andhra')) {
+    items = [
+      { name: 'Chicken Biryani', priceFactor: 1.0, isVeg: false, isBestseller: true },
+      { name: 'Mutton Biryani', priceFactor: 1.4, isVeg: false, isBestseller: true },
+      { name: 'Veg Biryani', priceFactor: 0.7, isVeg: true, isBestseller: false },
+      { name: 'Chicken 65', priceFactor: 0.8, isVeg: false, isBestseller: false },
+    ];
+  } else if (cuisineLower.includes('chinese') || cuisineLower.includes('asian')) {
+    items = [
+      { name: 'Fried Rice', priceFactor: 0.7, isVeg: true, isBestseller: true },
+      { name: 'Hakka Noodles', priceFactor: 0.7, isVeg: true, isBestseller: true },
+      { name: 'Manchurian', priceFactor: 0.65, isVeg: true, isBestseller: false },
+      { name: 'Chilli Chicken', priceFactor: 0.9, isVeg: false, isBestseller: false },
+    ];
+  } else if (cuisineLower.includes('pizza') || cuisineLower.includes('italian')) {
+    items = [
+      { name: 'Margherita Pizza', priceFactor: 0.6, isVeg: true, isBestseller: true },
+      { name: 'Pepperoni Pizza', priceFactor: 1.0, isVeg: false, isBestseller: true },
+      { name: 'Garlic Bread', priceFactor: 0.35, isVeg: true, isBestseller: false },
+      { name: 'Pasta Alfredo', priceFactor: 0.85, isVeg: true, isBestseller: false },
+    ];
+  } else if (cuisineLower.includes('north indian')) {
+    items = [
+      { name: 'Butter Chicken', priceFactor: 1.0, isVeg: false, isBestseller: true },
+      { name: 'Dal Makhani', priceFactor: 0.7, isVeg: true, isBestseller: true },
+      { name: 'Butter Naan', priceFactor: 0.2, isVeg: true, isBestseller: false },
+      { name: 'Paneer Tikka', priceFactor: 0.85, isVeg: true, isBestseller: false },
+    ];
+  } else {
+    items = [
+      { name: 'Special Combo', priceFactor: 1.0, isVeg: false, isBestseller: true },
+      { name: 'Veg Thali', priceFactor: 0.7, isVeg: true, isBestseller: true },
+      { name: 'Starter Platter', priceFactor: 0.6, isVeg: false, isBestseller: false },
+      { name: 'Dessert', priceFactor: 0.35, isVeg: true, isBestseller: false },
+    ];
+  }
+
+  return items.map(item => {
+    const basePrice = Math.round(avgCost * item.priceFactor);
+    const price = surge.active ? Math.round(basePrice * surge.multiplier) : basePrice;
+    return {
+      name: item.name,
+      price,
+      priceDisplay: `₹${price}`,
+      available: true,
+      isVeg: item.isVeg,
+      isBestseller: item.isBestseller,
+    };
+  });
+}
+
+async function fetchSimulatedPlatformRestaurants(
   platform: string,
   hour: number,
   extraDelay: number,

@@ -1,9 +1,13 @@
 /**
- * Live data integration layer.
- * Provides a pluggable PlatformProvider interface.
- * Currently uses simulated data that mimics real platform behavior.
- * Real scrapers/APIs can replace the simulation functions.
+ * Live ride data integration layer.
+ * Tries REAL Uber scraper first, then falls back to simulated data.
+ * Ola/Rapido data is always simulated (Uber is the required platform integration).
  */
+
+import {
+  getUberEstimates,
+  mapProductToRideType,
+} from './scrapers/uber-scraper';
 
 export interface PlatformQuote {
   platform: string;
@@ -12,8 +16,8 @@ export interface PlatformQuote {
   rideTypeDisplayName: string;
   price: number;
   priceDisplay: string;
-  eta: number; // minutes until pickup
-  tripDuration: number; // minutes for the trip
+  eta: number;
+  tripDuration: number;
   surgeMultiplier: number;
   available: boolean;
   error?: string;
@@ -25,6 +29,11 @@ export interface LiveDataResult {
   trafficDelayMinutes: number;
   fetchedAt: Date;
   errors: string[];
+  dataSource: {
+    uber: 'live' | 'simulated' | 'error';
+    ola: 'simulated';
+    rapido: 'simulated';
+  };
 }
 
 // Simulate traffic based on time of day
@@ -83,8 +92,12 @@ const rideTypeNames: Record<string, string> = {
   premium: 'Premium',
 };
 
+const SCRAPER_ENABLED = process.env.SCRAPER_ENABLED !== 'false';
+
 /**
  * Fetch live data from all platforms.
+ * Uber: tries real scraper first, falls back to simulated.
+ * Ola/Rapido: always simulated (only Uber is required by the assignment).
  * Handles failures gracefully — if a platform fails, others still return.
  */
 export async function fetchLiveData(
@@ -102,14 +115,62 @@ export async function fetchLiveData(
 
   const quotes: PlatformQuote[] = [];
   const errors: string[] = [];
+  let uberSource: 'live' | 'simulated' | 'error' = 'simulated';
 
-  // Fetch from each platform (simulated)
-  for (const platform of ['uber', 'ola', 'rapido']) {
+  // --- Uber: try REAL scraper, fall back to simulated ---
+  if (SCRAPER_ENABLED) {
     try {
-      const platformQuotes = await fetchPlatformQuotes(platform, distance, hour, traffic.delayMinutes);
+      const realQuotes = await fetchRealUberData(
+        originLat, originLng, destLat, destLng, distance, traffic.delayMinutes
+      );
+      if (realQuotes.length > 0) {
+        quotes.push(...realQuotes);
+        uberSource = 'live';
+        console.log(`[Live Data] Uber: ${realQuotes.length} quotes from REAL scraper`);
+      } else {
+        throw new Error('Real scraper returned no quotes');
+      }
+    } catch (e) {
+      console.warn(`[Live Data] Uber scraper failed, falling back to simulated:`, (e as Error).message);
+      uberSource = 'simulated';
+      try {
+        const simQuotes = await fetchSimulatedPlatformQuotes('uber', distance, hour, traffic.delayMinutes);
+        quotes.push(...simQuotes);
+      } catch {
+        uberSource = 'error';
+        const errorMsg = 'Uber: Service temporarily unavailable';
+        errors.push(errorMsg);
+        quotes.push({
+          platform: 'uber',
+          platformDisplayName: 'Uber',
+          rideType: 'cab',
+          rideTypeDisplayName: 'Cab',
+          price: 0,
+          priceDisplay: '--',
+          eta: 0,
+          tripDuration: 0,
+          surgeMultiplier: 1,
+          available: false,
+          error: errorMsg,
+        });
+      }
+    }
+  } else {
+    try {
+      const simQuotes = await fetchSimulatedPlatformQuotes('uber', distance, hour, traffic.delayMinutes);
+      quotes.push(...simQuotes);
+    } catch {
+      const errorMsg = 'Uber: Service temporarily unavailable';
+      errors.push(errorMsg);
+    }
+  }
+
+  // --- Ola & Rapido: always simulated ---
+  for (const platform of ['ola', 'rapido']) {
+    try {
+      const platformQuotes = await fetchSimulatedPlatformQuotes(platform, distance, hour, traffic.delayMinutes);
       quotes.push(...platformQuotes);
-    } catch (error) {
-      // Graceful failure — log error but continue with other platforms
+    } catch {
       const errorMsg = `${platformNames[platform]}: Service temporarily unavailable`;
       errors.push(errorMsg);
       quotes.push({
@@ -134,10 +195,47 @@ export async function fetchLiveData(
     trafficDelayMinutes: traffic.delayMinutes,
     fetchedAt: now,
     errors,
+    dataSource: {
+      uber: uberSource,
+      ola: 'simulated',
+      rapido: 'simulated',
+    },
   };
 }
 
-async function fetchPlatformQuotes(
+/**
+ * Fetch REAL price estimates from Uber via HTTP scraping.
+ */
+async function fetchRealUberData(
+  originLat: number,
+  originLng: number,
+  destLat: number,
+  destLng: number,
+  distanceKm: number,
+  trafficDelay: number
+): Promise<PlatformQuote[]> {
+  const estimates = await getUberEstimates(originLat, originLng, destLat, destLng);
+
+  return estimates.map((est) => {
+    const rideType = mapProductToRideType(est.productName);
+    const avgPrice = Math.round((est.lowPrice + est.highPrice) / 2);
+
+    return {
+      platform: 'uber',
+      platformDisplayName: 'Uber',
+      rideType,
+      rideTypeDisplayName: rideTypeNames[rideType] || est.productName,
+      price: avgPrice,
+      priceDisplay: avgPrice > 0 ? `₹${avgPrice}` : est.priceEstimate,
+      eta: est.etaMinutes || randomBetween(3, 8),
+      tripDuration: est.tripDurationMinutes || Math.round((distanceKm / 25) * 60) + trafficDelay,
+      surgeMultiplier: est.surgeMultiplier,
+      available: true,
+    };
+  });
+}
+
+async function fetchSimulatedPlatformQuotes(
   platform: string,
   distanceKm: number,
   hour: number,

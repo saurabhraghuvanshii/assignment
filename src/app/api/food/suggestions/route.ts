@@ -3,10 +3,19 @@ import { prisma } from '@/lib/prisma';
 import { updateStoredFoodPatterns } from '@/lib/food-learning-engine';
 import { evaluateFoodTriggers } from '@/lib/food-trigger-engine';
 import { buildFoodSuggestion } from '@/lib/food-suggestion-builder';
+import { auth } from '@/lib/auth';
 
 export async function GET() {
   try {
-    const user = await prisma.user.findFirst();
+    const session = await auth();
+    const userId = (session?.user as { id?: string } | undefined)?.id;
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, homeAddress: true, workAddress: true },
+    });
     if (!user) {
       return NextResponse.json({ error: 'No user found' }, { status: 404 });
     }

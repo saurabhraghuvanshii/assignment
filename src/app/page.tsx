@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { signIn as nextSignIn, signOut as nextSignOut } from 'next-auth/react';
 import {
   Car,
   MapPin,
@@ -24,6 +25,9 @@ import {
   BarChart3,
   Wallet,
   Smartphone,
+  Wifi,
+  WifiOff,
+  Radio,
 } from 'lucide-react';
 
 // ---- Ride types ----
@@ -48,6 +52,11 @@ interface LiveData {
   trafficDelayMinutes: number;
   fetchedAt: string;
   errors: string[];
+  dataSource?: {
+    uber: 'live' | 'simulated' | 'error';
+    ola: 'simulated';
+    rapido: 'simulated';
+  };
 }
 
 interface RideSuggestion {
@@ -129,6 +138,10 @@ interface FoodSuggestion {
     extraDelayMinutes: number;
     fetchedAt: string;
     errors: string[];
+    dataSource?: {
+      zomato: 'live' | 'simulated' | 'error';
+      swiggy: 'simulated';
+    };
   };
   alternatives: Array<{
     platform: string;
@@ -191,6 +204,28 @@ function PlatformLogo({ platform }: { platform: string }) {
   return <img className="platform-logo" src={logo.src} alt={logo.alt} />;
 }
 
+function DataSourceBadge({ source, platform }: { source: 'live' | 'simulated' | 'error'; platform: string }) {
+  if (source === 'live') {
+    return (
+      <span className="data-source-badge data-source-live" title={`${platform}: Live data from real scraper`}>
+        <Wifi size={10} /> {platform} Live
+      </span>
+    );
+  }
+  if (source === 'error') {
+    return (
+      <span className="data-source-badge data-source-error" title={`${platform}: Scraper failed`}>
+        <WifiOff size={10} /> {platform} Offline
+      </span>
+    );
+  }
+  return (
+    <span className="data-source-badge data-source-simulated" title={`${platform}: Using simulated data`}>
+      <Radio size={10} /> {platform} Simulated
+    </span>
+  );
+}
+
 function shortAddress(address: string): string {
   return address.split(',')[0].trim();
 }
@@ -209,20 +244,266 @@ function formatHour(h: number): string {
   return h > 12 ? `${h - 12}:00 PM` : `${h}:00 AM`;
 }
 
+function GoogleSignIn({ showToast }: { showToast: (msg: string, type: 'success' | 'error') => void }) {
+  return (
+    <button
+      className="btn-confirm"
+      style={{ justifyContent: 'center', display: 'inline-flex' }}
+      onClick={() => {
+        showToast('Redirecting to Google…', 'success');
+        nextSignIn('google', { callbackUrl: '/' });
+      }}
+    >
+      <ArrowRight size={16} /> Sign in with Google
+    </button>
+  );
+}
+
+function IntegrationsPanel({
+  showToast,
+  onLogout,
+}: {
+  showToast: (msg: string, type: 'success' | 'error') => void;
+  onLogout: () => Promise<void>;
+}) {
+  const [integrations, setIntegrations] = useState<
+    Array<{
+      provider: string;
+      status: string;
+      scopes: string[];
+      lastSyncAt: string | null;
+      lastSyncStatus: string | null;
+      sessionLast4: string | null;
+    }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
+  const [showZomatoModal, setShowZomatoModal] = useState(false);
+  const [cid, setCid] = useState('');
+  const [phpsessid, setPhpsessid] = useState('');
+  const [zat, setZat] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/integrations');
+      const data = await res.json();
+      setIntegrations(data.integrations || []);
+    } catch {
+      showToast('Failed to load integrations', 'error');
+    }
+    setLoading(false);
+  }, [showToast]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const zomato = integrations.find((i) => i.provider === 'zomato');
+
+  const connectZomato = async () => {
+    setConnecting(true);
+    try {
+      const res = await fetch('/api/integrations/zomato/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cid, PHPSESSID: phpsessid, zat }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Connect failed');
+      showToast('Zomato connected', 'success');
+      setShowZomatoModal(false);
+      await load();
+    } catch {
+      showToast('Failed to connect Zomato', 'error');
+    }
+    setConnecting(false);
+  };
+
+  const syncZomato = async () => {
+    setConnecting(true);
+    try {
+      const res = await fetch('/api/integrations/zomato/sync', { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) throw new Error('Sync failed');
+      showToast(`Imported ${data.imported} Zomato orders`, 'success');
+      await load();
+    } catch {
+      showToast('Zomato sync failed', 'error');
+    }
+    setConnecting(false);
+  };
+
+  return (
+    <div>
+      <div className="section-title">
+        <Smartphone size={18} /> Integrations
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <button className="btn-edit" onClick={onLogout}>
+          <X size={14} /> Logout
+        </button>
+        <a className="btn-edit" href="/api/scraper-status" target="_blank" rel="noreferrer">
+          <BarChart3 size={14} /> Scraper status
+        </a>
+      </div>
+
+      {loading ? (
+        <div className="loading-container">
+          <div className="loading-spinner" />
+          <div className="loading-text">Loading integrations…</div>
+        </div>
+      ) : (
+        <div className="patterns-grid">
+          <div className="pattern-card food-pattern-card">
+            <div className="pattern-header">
+              <div className="pattern-day">
+                <PlatformLogo platform="zomato" /> Zomato
+              </div>
+            </div>
+            <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 13, lineHeight: 1.5 }}>
+              Imports your real Zomato order history using your web session cookies.
+            </div>
+            <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <span className={`data-source-badge ${zomato?.status === 'connected' ? 'data-source-live' : 'data-source-simulated'}`}>
+                {zomato?.status === 'connected' ? <Wifi size={10} /> : <Radio size={10} />} {zomato?.status || 'not connected'}
+              </span>
+              {zomato?.sessionLast4 && (
+                <span className="data-source-badge data-source-simulated" title="Last 4 of zat cookie">
+                  zat …{zomato.sessionLast4}
+                </span>
+              )}
+            </div>
+            <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+              {zomato?.lastSyncStatus || 'Not synced yet'}
+            </div>
+            <div className="action-buttons" style={{ marginTop: 12 }}>
+              <button className="btn-edit" onClick={() => setShowZomatoModal(true)}>
+                <Pencil size={14} /> Connect / Update cookies
+              </button>
+              <button className="btn-confirm food-confirm" onClick={syncZomato} disabled={connecting || !zomato}>
+                <RefreshCw size={16} className={connecting ? 'loading-spinner' : ''} style={{ border: 'none', width: 16, height: 16 }} />
+                Sync orders
+              </button>
+            </div>
+          </div>
+
+          <div className="pattern-card">
+            <div className="pattern-header">
+              <div className="pattern-day">
+                <PlatformLogo platform="uber" /> Uber
+              </div>
+            </div>
+            <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 13, lineHeight: 1.5 }}>
+              Uber ride history import requires an authenticated session; we’ll add it next (same pattern as Zomato).
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <span className="data-source-badge data-source-simulated">
+                <Radio size={10} /> coming soon
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showZomatoModal && (
+        <div className="edit-overlay">
+          <div className="section-title" style={{ marginBottom: 8 }}>
+            <PlatformLogo platform="zomato" /> Connect Zomato
+          </div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)', marginBottom: 10, lineHeight: 1.5 }}>
+            Zomato doesn’t provide public OAuth. To import your <b>real order history</b>, paste these cookies from your
+            logged-in Zomato session (DevTools → Application → Cookies → `zomato.com`).
+            <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+              Requested permissions: read order history, read basic profile.
+            </div>
+          </div>
+          <div className="edit-field">
+            <div className="edit-label">cid</div>
+            <input className="edit-input" value={cid} onChange={(e) => setCid(e.target.value)} placeholder="cid" />
+          </div>
+          <div className="edit-field">
+            <div className="edit-label">PHPSESSID</div>
+            <input className="edit-input" value={phpsessid} onChange={(e) => setPhpsessid(e.target.value)} placeholder="PHPSESSID" />
+          </div>
+          <div className="edit-field">
+            <div className="edit-label">zat</div>
+            <input className="edit-input" value={zat} onChange={(e) => setZat(e.target.value)} placeholder="zat" />
+          </div>
+          <div className="edit-actions">
+            <button className="btn-save-edit food-save" onClick={connectZomato} disabled={connecting}>
+              {connecting ? 'Connecting…' : 'Connect'}
+            </button>
+            <button className="btn-cancel-edit" onClick={() => setShowZomatoModal(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ===== MAIN COMPONENT =====
 
 export default function Home() {
   const [assistantMode, setAssistantMode] = useState<'rides' | 'food'>('rides');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'patterns'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'patterns' | 'integrations'>('dashboard');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [me, setMe] = useState<null | { id: string; name: string; email?: string | null }>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
 
+  const refreshMe = useCallback(async () => {
+    setAuthLoading(true);
+    try {
+      const res = await fetch('/api/auth/me');
+      const data = await res.json();
+      setMe(data.user || null);
+    } catch {
+      setMe(null);
+    }
+    setAuthLoading(false);
+  }, []);
+
+  useEffect(() => {
+    refreshMe();
+  }, [refreshMe]);
+
   const now = new Date();
   const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 17 ? 'Good afternoon' : 'Good evening';
+  const displayName = me?.name || 'there';
+
+  if (authLoading) {
+    return (
+      <div className="app-container">
+        <div className="loading-container" style={{ minHeight: '60vh' }}>
+          <div className="loading-spinner" />
+          <div className="loading-text">Loading…</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!me) {
+    return (
+      <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '70vh' }}>
+        <div className="suggestion-card" style={{ width: 'min(520px, 92vw)' }}>
+          <div className="section-title" style={{ marginBottom: 8 }}>
+            <Brain size={18} /> Sign in to ProAssist
+          </div>
+          <GoogleSignIn
+            showToast={showToast}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
@@ -231,7 +512,7 @@ export default function Home() {
           <div className="app-logo">
             <span className="app-logo-mark">{assistantMode === 'rides' ? 'RideAssist' : 'FoodAssist'}</span>
           </div>
-          <div className="header-greeting">{greeting}, Rahul</div>
+          <div className="header-greeting">{greeting}, {displayName}</div>
           <div className="header-time">
             {now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} •{' '}
             {now.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })}
@@ -267,11 +548,20 @@ export default function Home() {
               <Brain size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
               Patterns
             </button>
+            <button className={`nav-tab ${activeTab === 'integrations' ? 'active' : ''}`} onClick={() => setActiveTab('integrations')}>
+              <Smartphone size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+              Integrations
+            </button>
           </div>
         </div>
       </header>
 
-      {assistantMode === 'rides' ? (
+      {activeTab === 'integrations' ? (
+        <IntegrationsPanel showToast={showToast} onLogout={async () => {
+          // Let NextAuth clear its cookies
+          await nextSignOut({ callbackUrl: '/' });
+        }} />
+      ) : assistantMode === 'rides' ? (
         <RideAssistant activeTab={activeTab} showToast={showToast} />
       ) : (
         <FoodAssistant activeTab={activeTab} showToast={showToast} />
@@ -617,6 +907,13 @@ function RideAssistant({ activeTab, showToast }: { activeTab: string; showToast:
                   </span>
                 </div>
               </div>
+              {suggestion.liveData.dataSource && (
+                <div className="data-source-bar">
+                  <DataSourceBadge source={suggestion.liveData.dataSource.uber} platform="Uber" />
+                  <DataSourceBadge source={suggestion.liveData.dataSource.ola} platform="Ola" />
+                  <DataSourceBadge source={suggestion.liveData.dataSource.rapido} platform="Rapido" />
+                </div>
+              )}
               <div className="platforms-grid">
                 {groupedQuotes.map((q, i) => (
                   <div key={`${q.platform}-${q.rideType}-${i}`}
@@ -994,6 +1291,13 @@ function FoodAssistant({ activeTab, showToast }: { activeTab: string; showToast:
                 <AlertTriangle size={14} style={{ marginRight: 6, verticalAlign: 'middle', color: 'var(--accent-food)' }} />
                 {suggestion.explanation}
               </div>
+
+              {suggestion.liveData.dataSource && (
+                <div className="data-source-bar">
+                  <DataSourceBadge source={suggestion.liveData.dataSource.zomato} platform="Zomato" />
+                  <DataSourceBadge source={suggestion.liveData.dataSource.swiggy} platform="Swiggy" />
+                </div>
+              )}
 
               {/* Restaurant + items */}
               <div className="food-order-card">

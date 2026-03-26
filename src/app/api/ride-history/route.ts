@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
 
 export async function GET(request: Request) {
   try {
@@ -8,13 +9,11 @@ export async function GET(request: Request) {
     const limit = parseInt(searchParams.get('limit') || '20');
     const platform = searchParams.get('platform');
 
-    // For demo, use the first user
-    const user = await prisma.user.findFirst();
-    if (!user) {
-      return NextResponse.json({ error: 'No user found' }, { status: 404 });
-    }
+    const session = await auth();
+    const userId = (session?.user as { id?: string } | undefined)?.id;
+    if (!userId) return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
 
-    const where: Record<string, unknown> = { userId: user.id };
+    const where: Record<string, unknown> = { userId };
     if (platform) where.platform = platform;
 
     const [rides, total] = await Promise.all([

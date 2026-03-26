@@ -16,11 +16,17 @@ A proactive assistant that learns from user behavior and suggests rides and food
 - **Suggests** complete orders with restaurant, items, delivery ETA, and alternatives
 - One-tap confirm, full edit support (restaurant, platform, individual items)
 
+### Real Platform Integration (Scrapers)
+- **Zomato (Live)**: HTTP scraper hits Zomato's internal `webroutes/getPage` API to fetch real restaurant listings -- actual names, ratings, delivery times, prices, and localities from Zomato's live database
+- **Uber (Fallback)**: Scraper architecture in place targeting Uber's fare estimate endpoints; falls back to simulated data when CSRF tokens are unavailable (Uber's API requires session-based auth)
+- **Graceful Degradation**: If any scraper fails (network issues, rate limiting, API changes), the system automatically falls back to simulated data. The UI shows a data source badge (Live / Simulated) for transparency
+- **Ola, Rapido, Swiggy**: Always simulated (additional platforms are optional per the assignment)
+
 ### Architecture
 - **Trigger Engine**: Watches time-of-day patterns, confidence thresholds (0.5 for rides, 0.35 for food), 2-hour dismissal cooldowns, consecutive dismissal dampening, checks for already-completed trips/orders
-- **Learning Engine**: Frequency analysis with 2× recency weighting for last 30 days, feedback loop from edits/dismissals adjusting pattern confidence and preferences
-- **Live Data**: Simulated platform APIs with 5% failure rate, graceful degradation when platforms are unreachable, fallback to available platforms
-- **Memory**: PostgreSQL with Prisma ORM — stores ride/food history, learned patterns, suggestions, and all user feedback
+- **Learning Engine**: Frequency analysis with 2x recency weighting for last 30 days, feedback loop from edits/dismissals adjusting pattern confidence and preferences
+- **Live Data Layer**: Tries real scrapers first (Zomato, Uber), falls back to simulated platform APIs with 5% failure rate. Graceful degradation when platforms are unreachable
+- **Memory**: PostgreSQL with Prisma ORM -- stores ride/food history, learned patterns, suggestions, and all user feedback
 
 ## Tech Stack
 
@@ -68,6 +74,9 @@ Open http://localhost:3000.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://assistant:assistant123@localhost:5432/proactive_assistant?schema=public` |
+| `SCRAPER_ENABLED` | Enable real platform scrapers (`true`/`false`) | `true` |
+| `ZOMATO_CITY` | City for Zomato restaurant search | `bangalore` |
+| `ZOMATO_ENTITY_ID` | Zomato city entity ID | `4` |
 
 ## Project Structure
 
@@ -81,6 +90,7 @@ src/
 │       ├── suggestions/                  # Ride suggestion CRUD
 │       ├── ride-history/                 # Ride history listing
 │       ├── patterns/                     # Learned ride patterns
+│       ├── scraper-status/               # Scraper status & config API
 │       ├── settings/                     # User settings
 │       └── food/
 │           ├── suggestions/              # Food suggestion CRUD
@@ -91,11 +101,14 @@ src/
 │   ├── learning-engine.ts                # Ride pattern analysis
 │   ├── trigger-engine.ts                 # Ride trigger logic
 │   ├── suggestion-builder.ts             # Ride suggestion builder
-│   ├── live-data.ts                      # Simulated ride platform APIs
+│   ├── live-data.ts                      # Ride live data (Uber scraper + simulated)
 │   ├── food-learning-engine.ts           # Food pattern analysis
 │   ├── food-trigger-engine.ts            # Food trigger logic
 │   ├── food-suggestion-builder.ts        # Food suggestion builder
-│   └── food-live-data.ts                 # Simulated food platform APIs
+│   ├── food-live-data.ts                 # Food live data (Zomato scraper + simulated)
+│   └── scrapers/
+│       ├── zomato-scraper.ts             # Real Zomato HTTP scraper (webroutes API)
+│       └── uber-scraper.ts              # Uber fare estimate scraper (with fallback)
 prisma/
 ├── schema.prisma                         # Database schema (10 models)
 ├── seed.ts                               # Demo data generator
