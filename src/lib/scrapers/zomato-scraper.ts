@@ -3,7 +3,7 @@
  * Fetches restaurant listings, delivery ETAs, and prices from Zomato's
  * internal webroutes API (the same JSON endpoints their frontend calls).
  *
- * Verified endpoint: GET /webroutes/getPage?page_url=/CITY/delivery
+ * Verified endpoint: GET /webroutes/getPage?page_url=/delivery
  * Returns SECTION_SEARCH_RESULT with restaurant cards including:
  *   - name, rating, cuisines, delivery time, cost, distance
  *   - order URL for the restaurant
@@ -62,13 +62,11 @@ export interface ZomatoSearchResult {
  */
 export async function searchRestaurants(
   query: string,
-  city = 'bangalore',
-  _entityId = 4,
   limit = 8
 ): Promise<ZomatoRestaurant[]> {
   const pageUrl = query
-    ? `/${city}/delivery?q=${encodeURIComponent(query)}`
-    : `/${city}/delivery`;
+    ? `/delivery?q=${encodeURIComponent(query)}`
+    : `/delivery`;
 
   const apiUrl = `${ZOMATO_BASE}/webroutes/getPage?page_url=${encodeURIComponent(pageUrl)}&location=&isMobile=0`;
 
@@ -87,7 +85,7 @@ export async function searchRestaurants(
   const data = (await res.json()) as Record<string, unknown>;
   const restaurants = parseSearchResult(data);
 
-  console.log(`[Zomato Scraper] Found ${restaurants.length} restaurants for "${query}" in ${city}`);
+  console.log(`[Zomato Scraper] Found ${restaurants.length} restaurants for "${query}" (user default location)`);
   return restaurants.slice(0, limit);
 }
 

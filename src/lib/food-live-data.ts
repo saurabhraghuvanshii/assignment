@@ -361,10 +361,7 @@ async function fetchRealZomatoData(
   surge: { active: boolean; multiplier: number }
 ): Promise<RestaurantQuote[]> {
   const query = restaurantName || cuisine || 'restaurant';
-  const city = process.env.ZOMATO_CITY || 'bangalore';
-  const entityId = parseInt(process.env.ZOMATO_ENTITY_ID || '4', 10);
-
-  const searchResults = await zomatoSearch(query, city, entityId, 6);
+  const searchResults = await zomatoSearch(query, 6);
   if (searchResults.length === 0) {
     throw new Error('No restaurants found on Zomato');
   }

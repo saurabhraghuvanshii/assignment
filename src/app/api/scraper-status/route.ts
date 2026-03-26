@@ -43,8 +43,7 @@ export async function GET() {
     },
     configuration: {
       SCRAPER_ENABLED: scraperEnabled,
-      ZOMATO_CITY: process.env.ZOMATO_CITY || 'bangalore',
-      ZOMATO_ENTITY_ID: process.env.ZOMATO_ENTITY_ID || '4',
+      ZOMATO_LOCATION_MODE: 'user-default',
     },
   });
 }
