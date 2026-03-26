@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs";
 import { spawn } from "child_process";
+import os from "os";
 import { auth } from "@/lib/auth";
 import { createZomatoPlaywrightToken } from "@/lib/integrations/zomato-playwright-token";
 
@@ -37,7 +38,9 @@ export async function POST(req: Request) {
       "scripts",
       "zomato-connect-playwright.cjs",
     );
-    const logsDir = path.join(process.cwd(), ".logs");
+    // Vercel/serverless filesystem is often read-only under /var/task.
+    // Use a writable temp directory instead.
+    const logsDir = path.join(os.tmpdir(), "logs");
     const logPath = path.join(logsDir, "zomato-playwright.log");
 
     fs.mkdirSync(logsDir, { recursive: true });
