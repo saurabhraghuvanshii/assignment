@@ -20,6 +20,10 @@ import {
   Timer,
   Truck,
   ChefHat,
+  Target,
+  BarChart3,
+  Wallet,
+  Smartphone,
 } from 'lucide-react';
 
 // ---- Ride types ----
@@ -173,13 +177,19 @@ interface FoodPatternItem {
 
 const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const platformIcons: Record<string, string> = {
-  uber: 'U',
-  ola: 'O',
-  rapido: 'R',
-  swiggy: 'S',
-  zomato: 'Z',
+const platformLogos: Record<string, { src: string; alt: string }> = {
+  uber: { src: '/uber-svgrepo-com.svg', alt: 'Uber' },
+  ola: { src: '/ola-cabs.svg', alt: 'Ola' },
+  rapido: { src: '/rapido.svg', alt: 'Rapido' },
+  swiggy: { src: '/swiggy-1.svg', alt: 'Swiggy' },
+  zomato: { src: '/zomato-2.svg', alt: 'Zomato' },
 };
+
+function PlatformLogo({ platform }: { platform: string }) {
+  const logo = platformLogos[platform];
+  if (!logo) return <div className="platform-fallback">{platform.slice(0, 1).toUpperCase()}</div>;
+  return <img className="platform-logo" src={logo.src} alt={logo.alt} />;
+}
 
 function shortAddress(address: string): string {
   return address.split(',')[0].trim();
@@ -219,8 +229,7 @@ export default function Home() {
       <header className="app-header">
         <div className="header-left">
           <div className="app-logo">
-            {assistantMode === 'rides' ? '⚡' : '🍽️'}{' '}
-            {assistantMode === 'rides' ? 'RideAssist' : 'FoodAssist'}
+            <span className="app-logo-mark">{assistantMode === 'rides' ? 'RideAssist' : 'FoodAssist'}</span>
           </div>
           <div className="header-greeting">{greeting}, Rahul</div>
           <div className="header-time">
@@ -441,7 +450,14 @@ function RideAssistant({ activeTab, showToast }: { activeTab: string; showToast:
           {[null, 'uber', 'ola', 'rapido'].map((f) => (
             <button key={f || 'all'} className={`filter-chip ${historyFilter === f ? 'active' : ''}`}
               onClick={() => { setHistoryFilter(f); setHistoryPage(1); }}>
-              {f ? f.charAt(0).toUpperCase() + f.slice(1) : 'All'}
+              {f ? (
+                <>
+                  <PlatformLogo platform={f} />
+                  <span className="sr-only">{f.charAt(0).toUpperCase() + f.slice(1)}</span>
+                </>
+              ) : (
+                'All'
+              )}
             </button>
           ))}
         </div>
@@ -452,7 +468,9 @@ function RideAssistant({ activeTab, showToast }: { activeTab: string; showToast:
             <div className="ride-history-list">
               {rides.map((ride) => (
                 <div key={ride.id} className="ride-item">
-                  <div className={`ride-platform-icon ride-platform-${ride.platform}`}>{platformIcons[ride.platform] || '?'}</div>
+                  <div className={`ride-platform-icon ride-platform-${ride.platform}`}>
+                    <PlatformLogo platform={ride.platform} />
+                  </div>
                   <div className="ride-info">
                     <div className="ride-route">{shortAddress(ride.originAddress)} → {shortAddress(ride.destAddress)}</div>
                     <div className="ride-meta">
@@ -493,9 +511,13 @@ function RideAssistant({ activeTab, showToast }: { activeTab: string; showToast:
                 </div>
                 <div className="pattern-route">{shortAddress(pattern.originAddress)} → {shortAddress(pattern.destAddress)}</div>
                 <div className="pattern-details">
-                  <span>🎯 {Math.round(pattern.confidence * 100)}% confidence</span>
-                  <span>📊 {pattern.frequency} rides</span>
-                  {pattern.preferredPlatform && <span>🚗 {pattern.preferredPlatform}</span>}
+                  <span><Target size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />{Math.round(pattern.confidence * 100)}% confidence</span>
+                  <span><BarChart3 size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />{pattern.frequency} rides</span>
+                  {pattern.preferredPlatform && (
+                    <span>
+                      <PlatformLogo platform={pattern.preferredPlatform} /> {pattern.preferredPlatform}
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
@@ -603,7 +625,12 @@ function RideAssistant({ activeTab, showToast }: { activeTab: string; showToast:
                     <div className="platform-name">{q.platformDisplayName}</div>
                     <div className="platform-ride-type">{q.rideTypeDisplayName}</div>
                     <div className="platform-price">{q.available ? q.priceDisplay : '--'}</div>
-                    {q.surgeMultiplier > 1.1 && <div className="surge-indicator">⚡ {q.surgeMultiplier}× surge</div>}
+                    {q.surgeMultiplier > 1.1 && (
+                      <div className="surge-indicator">
+                        <Zap size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                        {q.surgeMultiplier}× surge
+                      </div>
+                    )}
                     <div className="platform-details">
                       <div className="platform-detail"><span className="platform-detail-label">Pickup</span><span className="platform-detail-value">{q.eta} min</span></div>
                       <div className="platform-detail"><span className="platform-detail-label">Trip</span><span className="platform-detail-value">{q.tripDuration} min</span></div>
@@ -612,7 +639,10 @@ function RideAssistant({ activeTab, showToast }: { activeTab: string; showToast:
                 ))}
               </div>
               {suggestion.liveData.errors && suggestion.liveData.errors.length > 0 && (
-                <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--accent-warning)' }}>⚠️ {suggestion.liveData.errors.join(' • ')}</div>
+                <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--accent-warning)' }}>
+                  <AlertTriangle size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                  {suggestion.liveData.errors.join(' • ')}
+                </div>
               )}
               <div className="action-buttons">
                 <button className="btn-confirm" onClick={handleConfirm} disabled={confirming}>
@@ -625,7 +655,7 @@ function RideAssistant({ activeTab, showToast }: { activeTab: string; showToast:
         </div>
       ) : (
         <div className="no-suggestion">
-          <div className="no-suggestion-icon">🚗</div>
+          <div className="no-suggestion-icon"><Car size={40} /></div>
           <div className="no-suggestion-title">No rides suggested right now</div>
           <div className="no-suggestion-text">{noSuggestionReason || 'RideAssist will notify you when it detects you may need a ride based on your patterns.'}</div>
           <button className="btn-edit" style={{ margin: '16px auto 0', display: 'inline-flex' }} onClick={fetchSuggestion}><RefreshCw size={14} /> Refresh</button>
@@ -810,7 +840,14 @@ function FoodAssistant({ activeTab, showToast }: { activeTab: string; showToast:
           {[null, 'swiggy', 'zomato'].map((f) => (
             <button key={f || 'all'} className={`filter-chip ${historyFilter === f ? 'active' : ''}`}
               onClick={() => { setHistoryFilter(f); setHistoryPage(1); }}>
-              {f ? f.charAt(0).toUpperCase() + f.slice(1) : 'All'}
+              {f ? (
+                <>
+                  <PlatformLogo platform={f} />
+                  <span className="sr-only">{f.charAt(0).toUpperCase() + f.slice(1)}</span>
+                </>
+              ) : (
+                'All'
+              )}
             </button>
           ))}
         </div>
@@ -821,7 +858,9 @@ function FoodAssistant({ activeTab, showToast }: { activeTab: string; showToast:
             <div className="ride-history-list">
               {orders.map((order) => (
                 <div key={order.id} className="ride-item">
-                  <div className={`ride-platform-icon food-platform-${order.platform}`}>{platformIcons[order.platform] || '?'}</div>
+                  <div className={`ride-platform-icon food-platform-${order.platform}`}>
+                    <PlatformLogo platform={order.platform} />
+                  </div>
                   <div className="ride-info">
                     <div className="ride-route">
                       {order.restaurantName}
@@ -874,10 +913,12 @@ function FoodAssistant({ activeTab, showToast }: { activeTab: string; showToast:
                   ))}
                 </div>
                 <div className="pattern-details">
-                  <span>🎯 {Math.round(pattern.confidence * 100)}%</span>
-                  <span>📊 {pattern.frequency} orders</span>
-                  <span>💰 ~₹{pattern.averageCost}</span>
-                  {pattern.preferredPlatform && <span>📱 {pattern.preferredPlatform}</span>}
+                  <span><Target size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />{Math.round(pattern.confidence * 100)}%</span>
+                  <span><BarChart3 size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />{pattern.frequency} orders</span>
+                  <span><Wallet size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />~₹{pattern.averageCost}</span>
+                  {pattern.preferredPlatform && (
+                    <span><Smartphone size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />{pattern.preferredPlatform}</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -1018,7 +1059,10 @@ function FoodAssistant({ activeTab, showToast }: { activeTab: string; showToast:
 
               {/* Errors */}
               {suggestion.liveData.errors && suggestion.liveData.errors.length > 0 && (
-                <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--accent-warning)' }}>⚠️ {suggestion.liveData.errors.join(' • ')}</div>
+                <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--accent-warning)' }}>
+                  <AlertTriangle size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                  {suggestion.liveData.errors.join(' • ')}
+                </div>
               )}
 
               {/* Actions */}
@@ -1033,7 +1077,7 @@ function FoodAssistant({ activeTab, showToast }: { activeTab: string; showToast:
         </div>
       ) : (
         <div className="no-suggestion">
-          <div className="no-suggestion-icon">🍽️</div>
+          <div className="no-suggestion-icon"><UtensilsCrossed size={40} /></div>
           <div className="no-suggestion-title">No food suggestions right now</div>
           <div className="no-suggestion-text">{noSuggestionReason || 'FoodAssist will notify you when it detects you may want to order based on your patterns.'}</div>
           <button className="btn-edit" style={{ margin: '16px auto 0', display: 'inline-flex' }} onClick={fetchSuggestion}><RefreshCw size={14} /> Refresh</button>

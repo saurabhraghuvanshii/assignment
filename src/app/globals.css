@@ -412,7 +412,7 @@ body::before {
 }
 
 .platform-card.recommended::after {
-  content: '★ Best';
+  content: 'Best';
   position: absolute;
   top: 8px;
   right: 8px;
@@ -737,10 +737,34 @@ body::before {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.platform-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  filter: none;
+}
+
+/* Screen-reader only text */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.platform-fallback {
+  font-size: 14px;
   font-weight: 700;
   color: white;
-  flex-shrink: 0;
 }
 
 .ride-platform-uber {
@@ -1018,6 +1042,16 @@ body::before {
   cursor: pointer;
   transition: all var(--transition-fast);
   font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Icon-only chips */
+.filter-chip {
+  padding: 6px 10px;
+  min-width: 38px;
+  justify-content: center;
 }
 
 .filter-chip:hover {

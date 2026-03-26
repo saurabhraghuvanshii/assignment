@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       suggestion: updated,
-      message: 'Ride confirmed! 🎉',
+      message: 'Ride confirmed!',
     });
   } catch (error) {
     console.error('Error confirming suggestion:', error);

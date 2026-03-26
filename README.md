@@ -122,5 +122,5 @@ prisma/
 ## Seed Data
 
 The seed script generates ~90 days of realistic data for user "Rahul Sharma" in Bangalore:
-- **Rides**: ~113 records — weekday commutes (home↔office), Saturday gym trips, occasional mall/restaurant visits
+- **Rides**: ~113 records — weekday commutes (home-office), Saturday gym trips, occasional mall/restaurant visits
 - **Food**: ~68 records — weeknight dinners (biryani Fridays, healthy Mondays, Chinese Wednesdays), weekend lunches
