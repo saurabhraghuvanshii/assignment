@@ -165,23 +165,36 @@ function pickItems(
   typicalItems: Array<{ name: string; frequency: number }>,
   restaurant: RestaurantQuote | null
 ): Array<{ name: string; price: number; quantity: number }> {
+  const normalizedTypical = typicalItems
+    .map((item) => ({
+      name: normalizeItemName(item.name),
+      frequency: item.frequency,
+    }))
+    .filter((item) => item.name.length > 0);
+
   if (!restaurant || !restaurant.menu.length) {
     // Fallback: return typical items with estimated prices
-    return typicalItems.slice(0, 3).map((item) => ({
+    const fromTypical = normalizedTypical.slice(0, 3).map((item) => ({
       name: item.name,
       price: 250,
       quantity: 1,
     }));
+    if (fromTypical.length > 0) return fromTypical;
+    return [{ name: 'Chef Special', price: 250, quantity: 1 }];
   }
 
   const result: Array<{ name: string; price: number; quantity: number }> = [];
   const menuByName = new Map(restaurant.menu.map((m) => [m.name.toLowerCase(), m]));
 
   // Try to match typical items against the menu
-  for (const typical of typicalItems) {
+  for (const typical of normalizedTypical) {
     const menuItem = menuByName.get(typical.name.toLowerCase());
     if (menuItem && menuItem.available) {
-      result.push({ name: menuItem.name, price: menuItem.price, quantity: 1 });
+      result.push({
+        name: normalizeItemName(menuItem.name) || 'Chef Special',
+        price: menuItem.price,
+        quantity: 1,
+      });
     }
   }
 
@@ -189,7 +202,11 @@ function pickItems(
   if (result.length === 0) {
     const bestsellers = restaurant.menu.filter((m) => m.isBestseller && m.available);
     for (const item of bestsellers.slice(0, 2)) {
-      result.push({ name: item.name, price: item.price, quantity: 1 });
+      result.push({
+        name: normalizeItemName(item.name) || 'Chef Special',
+        price: item.price,
+        quantity: 1,
+      });
     }
   }
 
@@ -197,11 +214,25 @@ function pickItems(
   if (result.length === 0 && restaurant.menu.length > 0) {
     const available = restaurant.menu.find((m) => m.available);
     if (available) {
-      result.push({ name: available.name, price: available.price, quantity: 1 });
+      result.push({
+        name: normalizeItemName(available.name) || 'Chef Special',
+        price: available.price,
+        quantity: 1,
+      });
     }
   }
 
+  if (result.length === 0) {
+    result.push({ name: 'Chef Special', price: 250, quantity: 1 });
+  }
+
   return result;
+}
+
+function normalizeItemName(name: string | null | undefined): string {
+  const cleaned = String(name ?? '').replace(/\s+/g, ' ').trim();
+  if (!cleaned || cleaned.toLowerCase() === 'unknown items') return '';
+  return cleaned;
 }
 
 function buildAlternatives(
