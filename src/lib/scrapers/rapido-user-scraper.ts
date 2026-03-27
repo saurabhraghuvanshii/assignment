@@ -9,6 +9,9 @@ export type RapidoSessionInput = {
   historyUrl?: string;
   demoMode?: boolean;
   storageState?: string;
+  historyEmail?: string;
+  fromDate?: string;
+  toDate?: string;
 };
 
 export type RapidoTrip = {
@@ -46,27 +49,48 @@ export async function fetchRapidoTrips(
   }
 
   const url = session.historyUrl?.trim() || DEFAULT_HISTORY_URL;
+  const fromDate = resolveFromDate(session.fromDate);
+  const toDate = resolveToDate(session.toDate);
+  const candidateUrls = buildHistoryCandidates(url, fromDate, toDate, session.historyEmail);
+
+  const collected: RapidoTrip[] = [];
 
   if (hasCookieHeader) {
-    const html = await fetchRapidoHistoryHtml(url, session.cookieHeader);
-    const trips = parseRapidoTripsFromHtml(html);
-
-    if (trips.length > 0) {
-      return dedupe(trips);
+    for (const candidate of candidateUrls) {
+      try {
+        const html = await fetchRapidoHistoryHtml(candidate, session.cookieHeader);
+        const trips = parseRapidoTripsFromHtml(html);
+        if (trips.length > 0) {
+          collected.push(...trips);
+        }
+      } catch {
+        // try next URL shape
+      }
     }
   }
 
-  const renderedTrips = await fetchRapidoTripsFromRenderedPage(
-    url,
-    session.cookieHeader,
-    session.storageState,
-  );
+  for (const candidate of candidateUrls) {
+    const renderedTrips = await fetchRapidoTripsFromRenderedPage(
+      candidate,
+      session.cookieHeader,
+      session.storageState,
+      {
+        historyEmail: session.historyEmail,
+        fromDate,
+        toDate,
+      },
+    );
+    if (renderedTrips.length > 0) {
+      collected.push(...renderedTrips);
+    }
+  }
 
-  if (renderedTrips.length === 0) {
+  const finalTrips = dedupe(collected);
+  if (finalTrips.length === 0) {
     throw new Error("Rapido history page returned no parsable trips");
   }
 
-  return dedupe(renderedTrips);
+  return finalTrips;
 }
 
 async function fetchRapidoHistoryHtml(
@@ -109,6 +133,7 @@ async function fetchRapidoTripsFromRenderedPage(
   url: string,
   cookieHeader: string,
   storageState?: string,
+  filters?: { historyEmail?: string; fromDate: string; toDate: string },
 ): Promise<RapidoTrip[]> {
   let browserModule: PlaywrightBrowserModule | null = null;
 
@@ -148,7 +173,7 @@ async function fetchRapidoTripsFromRenderedPage(
     });
 
     await ensureRenderedHistoryLoaded(page, url);
-    await tryFillRapidoOneYearDateRange(page);
+    await tryFillRapidoOneYearDateRange(page, filters);
 
     const html = await page.content();
     const text = await page
@@ -413,15 +438,20 @@ function looksLikeRapidoRideHistory(text: string): boolean {
 
 async function tryFillRapidoOneYearDateRange(
   page: RapidoPageLike,
+  filters?: { historyEmail?: string; fromDate: string; toDate: string },
 ): Promise<void> {
-  const now = new Date();
-  const oneYearAgo = new Date(now);
-  oneYearAgo.setFullYear(now.getFullYear() - 1);
+  const fromDate = parseInputDate(filters?.fromDate) || (() => {
+    const now = new Date();
+    const oneYearAgo = new Date(now);
+    oneYearAgo.setFullYear(now.getFullYear() - 1);
+    return oneYearAgo;
+  })();
+  const toDate = parseInputDate(filters?.toDate) || new Date();
 
-  const fromIso = formatRapidoInputDate(oneYearAgo);
-  const toIso = formatRapidoInputDate(now);
-  const fromDisplay = formatRapidoDisplayDate(oneYearAgo);
-  const toDisplay = formatRapidoDisplayDate(now);
+  const fromIso = formatRapidoInputDate(fromDate);
+  const toIso = formatRapidoInputDate(toDate);
+  const fromDisplay = formatRapidoDisplayDate(fromDate);
+  const toDisplay = formatRapidoDisplayDate(toDate);
 
   const candidateInputSelectors = [
     'input[type="date"]',
@@ -470,6 +500,31 @@ async function tryFillRapidoOneYearDateRange(
       await input.click({ timeout: 1000 }).catch(() => undefined);
       await input.fill(preferredValue).catch(() => undefined);
       await input.press("Tab").catch(() => undefined);
+    }
+  }
+
+  // Some Rapido history forms require the account email in addition to date range.
+  if (filters?.historyEmail) {
+    const emailSelectors = [
+      'input[type="email"]',
+      'input[name*="email"]',
+      'input[name*="Email"]',
+      'input[placeholder*="email"]',
+      'input[placeholder*="Email"]',
+      'input[aria-label*="email"]',
+      'input[aria-label*="Email"]',
+    ];
+    for (const selector of emailSelectors) {
+      const locator = page.locator(selector);
+      const count = await locator.count().catch(() => 0);
+      if (count === 0) continue;
+      for (let i = 0; i < count; i++) {
+        await locator.nth(i).click({ timeout: 1000 }).catch(() => undefined);
+        await locator.nth(i).fill(filters.historyEmail).catch(() => undefined);
+        await locator.nth(i).press("Tab").catch(() => undefined);
+      }
+      foundAnyInput = true;
+      break;
     }
   }
 
@@ -568,6 +623,51 @@ async function tryFillRapidoOneYearDateRange(
       .catch(() => undefined);
     await page.waitForTimeout(1500);
   }
+}
+
+function resolveFromDate(input?: string): string {
+  if (input && parseInputDate(input)) return input;
+  const now = new Date();
+  const oneYearAgo = new Date(now);
+  oneYearAgo.setFullYear(now.getFullYear() - 1);
+  return formatRapidoInputDate(oneYearAgo);
+}
+
+function resolveToDate(input?: string): string {
+  if (input && parseInputDate(input)) return input;
+  return formatRapidoInputDate(new Date());
+}
+
+function parseInputDate(value?: string): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function buildHistoryCandidates(
+  baseUrl: string,
+  fromDate: string,
+  toDate: string,
+  email?: string,
+): string[] {
+  const out = new Set<string>();
+  out.add(baseUrl);
+
+  const keys: Array<[string, string, string]> = [
+    ["fromDate", "toDate", "email"],
+    ["from_date", "to_date", "email"],
+    ["startDate", "endDate", "email"],
+  ];
+
+  for (const [fromKey, toKey, emailKey] of keys) {
+    const u = new URL(baseUrl);
+    u.searchParams.set(fromKey, fromDate);
+    u.searchParams.set(toKey, toDate);
+    if (email) u.searchParams.set(emailKey, email);
+    out.add(u.toString());
+  }
+
+  return Array.from(out);
 }
 
 function formatRapidoInputDate(date: Date): string {

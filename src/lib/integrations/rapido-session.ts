@@ -6,6 +6,9 @@ export type RapidoSessionPayload = {
   cookieHeader?: string;
   historyUrl?: string;
   storageState?: string;
+  historyEmail?: string;
+  fromDate?: string;
+  toDate?: string;
 };
 
 export function validateRapidoSessionInput(
@@ -16,6 +19,9 @@ export function validateRapidoSessionInput(
     input.historyUrl ?? "https://m.rapido.bike/my-rides",
   ).trim();
   const storageState = String(input.storageState ?? "").trim();
+  const historyEmail = String(input.historyEmail ?? "").trim();
+  const fromDate = String(input.fromDate ?? "").trim();
+  const toDate = String(input.toDate ?? "").trim();
 
   if (!cookieHeader && !storageState) {
     throw new Error("Missing Rapido session data");
@@ -25,6 +31,9 @@ export function validateRapidoSessionInput(
     ...(cookieHeader ? { cookieHeader } : {}),
     historyUrl: historyUrl || "https://m.rapido.bike/my-rides",
     ...(storageState ? { storageState } : {}),
+    ...(historyEmail ? { historyEmail } : {}),
+    ...(fromDate ? { fromDate } : {}),
+    ...(toDate ? { toDate } : {}),
   };
 }
 
@@ -49,6 +58,9 @@ export async function saveRapidoSession(
         : "state",
       metadata: {
         historyUrl: validated.historyUrl,
+        historyEmail: validated.historyEmail ?? null,
+        fromDate: validated.fromDate ?? null,
+        toDate: validated.toDate ?? null,
       },
       lastSyncStatus: "connected",
     },
@@ -63,6 +75,9 @@ export async function saveRapidoSession(
         : "state",
       metadata: {
         historyUrl: validated.historyUrl,
+        historyEmail: validated.historyEmail ?? null,
+        fromDate: validated.fromDate ?? null,
+        toDate: validated.toDate ?? null,
       },
       lastSyncStatus: "connected",
     },

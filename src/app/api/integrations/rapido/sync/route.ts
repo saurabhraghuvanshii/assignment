@@ -13,6 +13,9 @@ type StoredRapidoSession = {
   historyUrl?: string;
   demoMode?: boolean;
   storageState?: string;
+  historyEmail?: string;
+  fromDate?: string;
+  toDate?: string;
 };
 
 export async function POST() {
@@ -37,12 +40,16 @@ export async function POST() {
   try {
     const sessionJson = decryptString(integration.sessionEncrypted);
     const raw = JSON.parse(sessionJson) as StoredRapidoSession;
+    const sessionEmail = (session?.user as { email?: string } | undefined)?.email;
 
     const sessionInput: RapidoSessionInput = {
       cookieHeader: raw.cookieHeader ?? "",
       historyUrl: raw.historyUrl,
       demoMode: raw.demoMode,
       storageState: raw.storageState,
+      historyEmail: raw.historyEmail || sessionEmail,
+      fromDate: raw.fromDate,
+      toDate: raw.toDate,
     };
 
     const trips = await fetchRapidoTrips(sessionInput);
