@@ -351,20 +351,23 @@ function IntegrationsPanel({
     [showToast],
   );
 
-  const pollForZomatoConnection = useCallback(async () => {
-    for (let attempt = 0; attempt < 15; attempt++) {
-      await new Promise((resolve) => window.setTimeout(resolve, 2000));
-      const latest = (await load(true)) as Array<{
-        provider: string;
-        status: string;
-      }>;
-      const latestZomato = latest.find((i) => i.provider === "zomato");
-      if (latestZomato?.status === "connected") {
-        showToast("Zomato connected", "success");
-        return;
+  const pollForProviderConnection = useCallback(
+    async (provider: "zomato" | "rapido", successMessage: string) => {
+      for (let attempt = 0; attempt < 15; attempt++) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        const latest = (await load(true)) as Array<{
+          provider: string;
+          status: string;
+        }>;
+        const latestProvider = latest.find((i) => i.provider === provider);
+        if (latestProvider?.status === "connected") {
+          showToast(successMessage, "success");
+          return;
+        }
       }
-    }
-  }, [load, showToast]);
+    },
+    [load, showToast],
+  );
 
   useEffect(() => {
     load();
@@ -386,6 +389,7 @@ function IntegrationsPanel({
   }, [load, showToast]);
 
   const zomato = integrations.find((i) => i.provider === "zomato");
+  const rapido = integrations.find((i) => i.provider === "rapido");
   const uber = integrations.find((i) => i.provider === "uber");
 
   const connectZomatoWithBrowser = async () => {
@@ -408,9 +412,53 @@ function IntegrationsPanel({
           "Zomato login window launched. Complete login there to connect.",
         "success",
       );
-      void pollForZomatoConnection();
+      void pollForProviderConnection("zomato", "Zomato connected");
     } catch (e) {
       showToast((e as Error).message, "error");
+    }
+    setConnecting(false);
+  };
+
+  const connectRapidoWithBrowser = async () => {
+    setConnecting(true);
+    try {
+      const res = await fetch("/api/integrations/rapido/playwright/start", {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(
+          data.error ||
+            (data.logPath
+              ? `Browser connect failed. Check ${data.logPath}`
+              : "Browser connect failed"),
+        );
+      }
+      showToast(
+        data.message ||
+          "Rapido login window launched. Complete login there to connect.",
+        "success",
+      );
+      void pollForProviderConnection("rapido", "Rapido connected");
+    } catch (e) {
+      showToast((e as Error).message, "error");
+    }
+    setConnecting(false);
+  };
+
+  const syncRapido = async () => {
+    setConnecting(true);
+    try {
+      const res = await fetch("/api/integrations/rapido/sync", {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!data.success)
+        throw new Error(data.reason || data.error || "Sync failed");
+      showToast(`Imported ${data.imported} Rapido trips`, "success");
+      await load();
+    } catch (e) {
+      showToast(`Rapido sync failed: ${(e as Error).message}`, "error");
     }
     setConnecting(false);
   };
@@ -422,7 +470,8 @@ function IntegrationsPanel({
         method: "POST",
       });
       const data = await res.json();
-      if (!data.success) throw new Error(data.reason || data.error || "Sync failed");
+      if (!data.success)
+        throw new Error(data.reason || data.error || "Sync failed");
       showToast(`Imported ${data.imported} Zomato orders`, "success");
       await load();
     } catch (e) {
@@ -526,6 +575,75 @@ function IntegrationsPanel({
                   style={{ border: "none", width: 16, height: 16 }}
                 />
                 Sync orders
+              </button>
+            </div>
+          </div>
+
+          <div className="pattern-card">
+            <div className="pattern-header">
+              <div className="pattern-day">
+                <PlatformLogo platform="rapido" size={44} />
+              </div>
+            </div>
+            <div
+              style={{
+                color: "rgba(255,255,255,0.72)",
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              Imports your real Rapido ride history using a browser-assisted
+              login flow from `https://m.rapido.bike/my-rides`.
+            </div>
+            <div
+              style={{
+                marginTop: 10,
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+              }}
+            >
+              <span
+                className={`data-source-badge ${rapido?.status === "connected" ? "data-source-live" : "data-source-simulated"}`}
+              >
+                {rapido?.status === "connected" ? (
+                  <Wifi size={10} />
+                ) : (
+                  <Radio size={10} />
+                )}{" "}
+                {rapido?.status || "not connected"}
+              </span>
+            </div>
+            <div
+              style={{
+                marginTop: 10,
+                fontSize: 12,
+                color: "rgba(255,255,255,0.6)",
+              }}
+            >
+              {rapido?.lastSyncStatus || "Not synced yet"}
+            </div>
+            <div className="action-buttons" style={{ marginTop: 12 }}>
+              <button
+                className="btn-confirm"
+                onClick={connectRapidoWithBrowser}
+                disabled={connecting}
+                title="Opens a local browser window for Rapido login"
+              >
+                <ArrowRight size={16} />
+                {connecting ? "Launching…" : "Connect with Browser"}
+              </button>
+              <button
+                className="btn-confirm"
+                onClick={syncRapido}
+                disabled={connecting || !rapido}
+              >
+                <RefreshCw
+                  size={16}
+                  className={connecting ? "loading-spinner" : ""}
+                  style={{ border: "none", width: 16, height: 16 }}
+                />
+                Sync trips
               </button>
             </div>
           </div>
